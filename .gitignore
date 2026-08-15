@@ -1,0 +1,36 @@
+# Private Environment Variables
+.env
+backend/.env
+backend/uploads/
+uploads/
+
+# Python Ignored Files
+__pycache__/
+*.py[cod]
+*$py.class
+backend/venv/
+backend/env/
+backend/ENV/
+
+# Flutter / Dart Ignored Files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+frontend/build/
+*.apk
+*.aab
+*.app
+*.ipa
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+
+# Editor / OS configs
+.DS_Store
+.idea/
+.vscode/
+*.suo
+*.sln
+*.swp
