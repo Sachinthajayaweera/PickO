@@ -80,10 +80,22 @@ class _MainTabsContainerState extends State<MainTabsContainer> {
   @override
   Widget build(BuildContext context) {
     if (_isCheckingAuth) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F0E17),
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0E17),
         body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                'assets/images/logo.png',
+                width: 120,
+                height: 120,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(color: Color(0xFF8B5CF6)),
+            ],
+          ),
         ),
       );
     }
