@@ -667,7 +667,7 @@ def get_user(id: str):
             conn.commit()
             
             cursor.execute(
-                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, created_at, avatar_url 
+                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, created_at, avatar_url, start_city, nic_front_url, nic_back_url, terms_accepted 
                    FROM users WHERE id = %s""", (id,)
             )
             row = cursor.fetchone()
@@ -678,13 +678,17 @@ def get_user(id: str):
                 "name": row[1],
                 "is_commuter": row[2],
                 "route_city": row[3],
-                "current_lat": float(row[4]),
-                "current_lng": float(row[5]),
+                "current_lat": float(row[4]) if row[4] else 0.0,
+                "current_lng": float(row[5]) if row[5] else 0.0,
                 "kyc_verified_status": row[6],
                 "trust_score": float(row[7]),
                 "rating": float(row[8]),
                 "created_at": row[9].isoformat(),
-                "avatarUrl": row[10]
+                "avatarUrl": row[10],
+                "start_city": row[11],
+                "nic_front_url": row[12],
+                "nic_back_url": row[13],
+                "terms_accepted": row[14]
             }
     finally:
         release_db_connection(conn)
@@ -714,8 +718,8 @@ def update_kyc(id: str, req: UpdateKycRequest):
                     "name": row[1],
                     "is_commuter": row[2],
                     "route_city": row[3],
-                    "current_lat": float(row[4]),
-                    "current_lng": float(row[5]),
+                    "current_lat": float(row[4]) if row[4] else 0.0,
+                    "current_lng": float(row[5]) if row[5] else 0.0,
                     "kyc_verified_status": row[6],
                     "trust_score": float(row[7]),
                     "rating": float(row[8]),
@@ -729,27 +733,60 @@ def update_kyc(id: str, req: UpdateKycRequest):
         release_db_connection(conn)
 
 @app.post("/api/users/{id}/commuter")
-def upgrade_commuter(id: str, req: UpgradeCommuterRequest):
+def upgrade_commuter(
+    id: str,
+    route_city: str = Form(...),
+    start_city: str = Form(...),
+    terms_accepted: bool = Form(...),
+    current_lat: float = Form(42.3601),
+    current_lng: float = Form(-71.0589),
+    nic_front: Optional[UploadFile] = File(None),
+    nic_back: Optional[UploadFile] = File(None)
+):
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
+            # Check if user exists
+            cursor.execute("SELECT id FROM users WHERE id = %s", (id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="User not found")
+                
+            # Handle NIC Front file upload
+            nic_front_url = None
+            if nic_front:
+                file_ext = nic_front.filename.split(".")[-1] if "." in nic_front.filename else "jpg"
+                filename = f"nic_front_{id}_{uuid.uuid4().hex[:8]}.{file_ext}"
+                file_path = os.path.join("uploads", filename)
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(nic_front.file, buffer)
+                nic_front_url = f"/uploads/{filename}"
+
+            # Handle NIC Back file upload
+            nic_back_url = None
+            if nic_back:
+                file_ext = nic_back.filename.split(".")[-1] if "." in nic_back.filename else "jpg"
+                filename = f"nic_back_{id}_{uuid.uuid4().hex[:8]}.{file_ext}"
+                file_path = os.path.join("uploads", filename)
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(nic_back.file, buffer)
+                nic_back_url = f"/uploads/{filename}"
+                
             cursor.execute(
                 """UPDATE users 
-                   SET is_commuter = TRUE, route_city = %s, current_lat = %s, current_lng = %s
-                   WHERE id = %s 
-                   RETURNING id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, avatar_url""",
-                (req.route_city, req.current_lat, req.current_lng, id)
+                   SET is_commuter = TRUE, route_city = %s, start_city = %s, current_lat = %s, current_lng = %s,
+                       nic_front_url = COALESCE(%s, nic_front_url),
+                       nic_back_url = COALESCE(%s, nic_back_url),
+                       terms_accepted = %s
+                   WHERE id = %s""",
+                (route_city, start_city, current_lat, current_lng, nic_front_url, nic_back_url, terms_accepted, id)
             )
-            row = cursor.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="User not found")
             
             # Sync trust score to calculate initial score incorporating new KYC status
             sync_user_trust_score(cursor, id)
             
             # Re-fetch with updated trust score
             cursor.execute(
-                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, avatar_url 
+                """SELECT id, name, is_commuter, route_city, start_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, avatar_url, nic_front_url, nic_back_url, terms_accepted
                    FROM users WHERE id = %s""", (id,)
             )
             row = cursor.fetchone()
@@ -762,12 +799,16 @@ def upgrade_commuter(id: str, req: UpgradeCommuterRequest):
                     "name": row[1],
                     "is_commuter": row[2],
                     "route_city": row[3],
-                    "current_lat": float(row[4]),
-                    "current_lng": float(row[5]),
-                    "kyc_verified_status": row[6],
-                    "trust_score": float(row[7]),
-                    "rating": float(row[8]),
-                    "avatarUrl": row[9]
+                    "start_city": row[4],
+                    "current_lat": float(row[5]) if row[5] else 0.0,
+                    "current_lng": float(row[6]) if row[6] else 0.0,
+                    "kyc_verified_status": row[7],
+                    "trust_score": float(row[8]),
+                    "rating": float(row[9]),
+                    "avatarUrl": row[10],
+                    "nicFrontUrl": row[11],
+                    "nicBackUrl": row[12],
+                    "termsAccepted": row[13]
                 }
             }
     except Exception as e:

@@ -63,41 +63,48 @@ class TravelerDashboardScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 24,
-                                  backgroundColor: const Color(0xFF1E1B2C),
-                                  backgroundImage: traveler.avatarUrl != null && traveler.avatarUrl!.isNotEmpty
-                                      ? NetworkImage(traveler.avatarUrl!.startsWith('http')
-                                          ? traveler.avatarUrl!
-                                          : '${apiService.baseUrl}${traveler.avatarUrl}')
-                                      : null,
-                                  child: traveler.avatarUrl == null || traveler.avatarUrl!.isEmpty
-                                      ? const Icon(Icons.person_rounded, size: 24, color: Colors.grey)
-                                      : null,
-                                ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Active Commuter,',
-                                      style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: 'Outfit'),
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 24,
+                                    backgroundColor: const Color(0xFF1E1B2C),
+                                    backgroundImage: traveler.avatarUrl != null && traveler.avatarUrl!.isNotEmpty
+                                        ? NetworkImage(traveler.avatarUrl!.startsWith('http')
+                                            ? traveler.avatarUrl!
+                                            : '${apiService.baseUrl}${traveler.avatarUrl}')
+                                        : null,
+                                    child: traveler.avatarUrl == null || traveler.avatarUrl!.isEmpty
+                                        ? const Icon(Icons.person_rounded, size: 24, color: Colors.grey)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Active Commuter,',
+                                          style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: 'Outfit'),
+                                        ),
+                                        Text(
+                                          traveler.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      traveler.name,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'Outfit',
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 12),
                             // View Toggle Button
                             GestureDetector(
                               onTap: () => apiService.toggleViewMode(),

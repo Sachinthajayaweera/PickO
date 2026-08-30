@@ -382,25 +382,38 @@ class MockApiService extends ChangeNotifier {
     }
   }
 
-  Future<void> registerAsCommuter(String routeCity, {required bool simulatedKyc}) async {
+  Future<void> registerAsCommuter({
+    required String startCity,
+    required String routeCity,
+    required bool termsAccepted,
+    required String nicFrontPath,
+    required String nicBackPath,
+  }) async {
     try {
       // First update KYC status
       await http.post(
         Uri.parse('$baseUrl/api/users/$_currentUserId/kyc'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'kyc_verified': simulatedKyc}),
+        body: json.encode({'kyc_verified': true}),
       );
 
       // Then upgrade user to commuter
-      final response = await http.post(
+      var request = http.MultipartRequest(
+        'POST',
         Uri.parse('$baseUrl/api/users/$_currentUserId/commuter'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'route_city': routeCity,
-          'current_lat': 42.3601, // Default Boston Lat
-          'current_lng': -71.0589 // Default Boston Lng
-        }),
       );
+      
+      request.fields['route_city'] = routeCity;
+      request.fields['start_city'] = startCity;
+      request.fields['terms_accepted'] = termsAccepted.toString();
+      request.fields['current_lat'] = '42.3601'; // Default Boston Lat
+      request.fields['current_lng'] = '-71.0589'; // Default Boston Lng
+      
+      request.files.add(await http.MultipartFile.fromPath('nic_front', nicFrontPath));
+      request.files.add(await http.MultipartFile.fromPath('nic_back', nicBackPath));
+      
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         _isSenderView = false;
