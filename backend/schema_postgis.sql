@@ -75,11 +75,15 @@ CREATE INDEX IF NOT EXISTS idx_parcels_pickup_geom ON parcels USING GIST (pickup
 CREATE INDEX IF NOT EXISTS idx_parcels_dropoff_geom ON parcels USING GIST (dropoff_geom);
 CREATE INDEX IF NOT EXISTS idx_parcel_scans_geom ON parcel_scans USING GIST (scan_location);
 
--- Migration/Updates for Uber-style Login
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS start_city VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nic_front_url VARCHAR(1024);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nic_back_url VARCHAR(1024);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT FALSE;
 
 ALTER TABLE parcels ADD COLUMN IF NOT EXISTS rating_stars INT CHECK (rating_stars >= 1 AND rating_stars <= 5);
 ALTER TABLE parcels ADD COLUMN IF NOT EXISTS feedback_text TEXT;
