@@ -22,8 +22,8 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
   final _descriptionController = TextEditingController();
   final _receiverNameController = TextEditingController();
   final _receiverPhoneController = TextEditingController();
-  final _pickupCityController = TextEditingController(text: 'Colombo');
-  final _dropoffCityController = TextEditingController(text: 'Kandy');
+  final _pickupCityController = TextEditingController(text: '');
+  final _dropoffCityController = TextEditingController(text: '');
 
   final _pickupFocusNode = FocusNode();
   final _dropoffFocusNode = FocusNode();
@@ -51,14 +51,80 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
   bool _dropoffNeedsResolve = false;
 
   final Map<String, List<double>> _fallbackCities = {
+    // Western Province
     'colombo': [6.9271, 79.8612],
-    'kandy': [7.2906, 80.6337],
-    'galle': [6.0535, 80.2117],
-    'jaffna': [9.6615, 80.0255],
+    'gampaha': [7.0840, 79.9939],
+    'kalutara': [6.5854, 79.9607],
     'negombo': [7.2089, 79.8388],
-    'anuradhapura': [8.3114, 80.4037],
-    'kurunegala': [7.4863, 80.3647],
+    'moratuwa': [6.7730, 79.8816],
+    'dehiwala': [6.8510, 79.8656],
+    'maharagama': [6.8480, 79.9265],
+    'nugegoda': [6.8649, 79.8997],
+    'panadura': [6.7132, 79.9074],
+    'wattala': [6.9895, 79.8913],
+    'kelaniya': [6.9553, 79.9224],
+    'katunayake': [7.1690, 79.8906],
+    'homagama': [6.8436, 80.0032],
+    'kaduwela': [6.9333, 79.9833],
+    'battaramulla': [6.8990, 79.9214],
+    'avissawella': [6.9538, 80.2078],
+    
+    // Central Province
+    'kandy': [7.2906, 80.6337],
+    'peradeniya': [7.2600, 80.5969],
+    'matale': [7.4675, 80.6234],
+    'nuwara eliya': [6.9497, 80.7891],
+    'gampola': [7.1643, 80.5678],
+    'hatton': [6.8961, 80.5960],
+    'dambulla': [7.8742, 80.6511],
+    
+    // Southern Province
+    'galle': [6.0535, 80.2117],
     'matara': [5.9549, 80.5550],
+    'hambantota': [6.1248, 81.1185],
+    'tangalle': [6.0244, 80.7941],
+    'weligama': [5.9722, 80.4287],
+    'hikkaduwa': [6.1406, 80.1017],
+    'ambalangoda': [6.2359, 80.0542],
+    
+    // Northern Province
+    'jaffna': [9.6615, 80.0255],
+    'vavuniya': [8.7514, 80.4971],
+    'kilinochchi': [9.3803, 80.3770],
+    'mannar': [8.9810, 79.9044],
+    'mullaitivu': [9.2671, 80.8142],
+    
+    // Eastern Province
+    'trincomalee': [8.5874, 81.2152],
+    'batticaloa': [7.7310, 81.6747],
+    'ampara': [7.2912, 81.6724],
+    'kalmunai': [7.4167, 81.8333],
+    
+    // North Western Province
+    'kurunegala': [7.4863, 80.3647],
+    'puttalam': [8.0408, 79.8394],
+    'chilaw': [7.5758, 79.7953],
+    'kuliyapitiya': [7.4689, 80.0401],
+    
+    // North Central Province
+    'anuradhapura': [8.3114, 80.4037],
+    'polonnaruwa': [7.9403, 81.0188],
+    
+    // Uva Province
+    'badulla': [6.9934, 81.0550],
+    'bandarawela': [6.8333, 80.9833],
+    'ella': [6.8667, 81.0466],
+    'monaragala': [6.8728, 81.3507],
+    
+    // Sabaragamuwa Province
+    'ratnapura': [6.6828, 80.4034],
+    'kegalle': [7.2513, 80.3464],
+    'balangoda': [6.6492, 80.7003],
+    'embilipitiya': [6.3400, 80.8500],
+
+    // Global / Testing
+    'boston': [42.3601, -71.0589],
+    'new york': [40.7128, -74.0060],
   };
 
   @override
@@ -88,24 +154,73 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
 
   void _onFocusChange() {
     if (!_pickupFocusNode.hasFocus && !_dropoffFocusNode.hasFocus) {
-      _calculateDistance();
+      _autoResolveAndCalculate();
     }
   }
 
   void _onPickupChanged(String value) {
     _pickupNeedsResolve = true;
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       _fetchSuggestions(value, isPickup: true);
+      if (value.trim().length >= 2) {
+        await _autoResolveAndCalculate();
+      }
     });
   }
 
   void _onDropoffChanged(String value) {
     _dropoffNeedsResolve = true;
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       _fetchSuggestions(value, isPickup: false);
+      if (value.trim().length >= 2) {
+        await _autoResolveAndCalculate();
+      }
     });
+  }
+
+  Future<void> _autoResolveAndCalculate() async {
+    final pickup = _pickupCityController.text.trim();
+    final dropoff = _dropoffCityController.text.trim();
+    if (pickup.isEmpty && dropoff.isEmpty) return;
+
+    bool updatedCoords = false;
+
+    if (_pickupNeedsResolve && pickup.isNotEmpty) {
+      final pCoords = await _resolveCoordinates(pickup);
+      if (pCoords != null) {
+        _resolvedPickupLat = pCoords['lat']!;
+        _resolvedPickupLng = pCoords['lng']!;
+        _pickupNeedsResolve = false;
+        updatedCoords = true;
+      }
+    }
+
+    if (_dropoffNeedsResolve && dropoff.isNotEmpty) {
+      final dCoords = await _resolveCoordinates(dropoff);
+      if (dCoords != null) {
+        _resolvedDropoffLat = dCoords['lat']!;
+        _resolvedDropoffLng = dCoords['lng']!;
+        _dropoffNeedsResolve = false;
+        updatedCoords = true;
+      }
+    }
+
+    if (pickup.isNotEmpty && dropoff.isNotEmpty) {
+      await _calculateDistance();
+    } else if (updatedCoords && mounted) {
+      setState(() {});
+      try {
+        if (pickup.isNotEmpty) {
+          _mapController.move(LatLng(_resolvedPickupLat, _resolvedPickupLng), 12.0);
+        } else if (dropoff.isNotEmpty) {
+          _mapController.move(LatLng(_resolvedDropoffLat, _resolvedDropoffLng), 12.0);
+        }
+      } catch (e) {
+        print('Map center error: $e');
+      }
+    }
   }
 
   Future<void> _fetchSuggestions(String query, {required bool isPickup}) async {
@@ -124,7 +239,7 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
 
     try {
       final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(query)}&format=json&limit=5&countrycodes=lk');
-      final response = await http.get(url, headers: {'User-Agent': 'CarryMate/1.0'}).timeout(const Duration(seconds: 4));
+      final response = await http.get(url, headers: {'User-Agent': 'PickO/1.0 (dev@picko.lk)'}).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         final suggestions = data.map((item) {
@@ -203,6 +318,8 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
 
   Future<Map<String, double>?> _resolveCoordinates(String city) async {
     final cleanCity = city.trim().toLowerCase();
+    
+    // Exact match in dictionary
     if (_fallbackCities.containsKey(cleanCity)) {
       return {
         'lat': _fallbackCities[cleanCity]![0],
@@ -210,9 +327,20 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
       };
     }
 
+    // Prefix or substring match in dictionary (e.g. "Colombo 03", "Kandy Town")
+    for (final entry in _fallbackCities.entries) {
+      if (cleanCity.startsWith(entry.key) || entry.key.startsWith(cleanCity)) {
+        return {
+          'lat': entry.value[0],
+          'lng': entry.value[1],
+        };
+      }
+    }
+
+    // Fallback to online geocoding
     try {
       final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(city)}&format=json&limit=1&countrycodes=lk');
-      final response = await http.get(url, headers: {'User-Agent': 'CarryMate/1.0'}).timeout(const Duration(seconds: 4));
+      final response = await http.get(url, headers: {'User-Agent': 'PickO/1.0 (dev@picko.lk)'}).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         if (data.isNotEmpty) {
@@ -228,72 +356,52 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
     return null;
   }
 
-  static const String _orsApiKey = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjRlYWRkMGJkZGQxMDQwNTBhOWY3OWU1MTMzYjFmMjIzIiwiaCI6Im11cm11cjY0In0=';
-
   Future<double?> _calculateRoadDistance(double startLat, double startLng, double endLat, double endLng) async {
-    if (_orsApiKey == 'YOUR_API_KEY_HERE' || _orsApiKey.isEmpty) {
-      print('ORS API Key is placeholder or empty. Falling back to local Haversine.');
-      _usingORS = false;
+    // 1. Try public Open Source Routing Machine (OSRM) for true road network driving route
+    try {
+      final osrmUrl = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/$startLng,$startLat;$endLng,$endLat?overview=full&geometries=geojson',
+      );
+      final response = await http.get(osrmUrl, headers: {'User-Agent': 'PickO/1.0'}).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['routes'] != null && (data['routes'] as List).isNotEmpty) {
+          final route = data['routes'][0];
+          final double distanceMeters = (route['distance'] as num).toDouble();
+          final geometry = route['geometry'];
+          if (geometry != null && geometry['coordinates'] != null) {
+            final List<dynamic> coords = geometry['coordinates'];
+            if (mounted) {
+              setState(() {
+                _routePolylinePoints = coords.map((c) {
+                  final List<dynamic> coordList = c as List<dynamic>;
+                  final double lon = (coordList[0] as num).toDouble();
+                  final double lat = (coordList[1] as num).toDouble();
+                  return LatLng(lat, lon);
+                }).toList();
+                _usingORS = true;
+              });
+            }
+          }
+          return distanceMeters / 1000.0;
+        }
+      }
+    } catch (e) {
+      print('OSRM Routing error: $e');
+    }
+
+    // 2. Fallback to Haversine straight-line distance with road curvature factor
+    if (mounted) {
       setState(() {
+        _usingORS = false;
         _routePolylinePoints = [
           LatLng(startLat, startLng),
           LatLng(endLat, endLng),
         ];
       });
-      return _calculateHaversineDistance(startLat, startLng, endLat, endLng);
     }
-
-    try {
-      final url = Uri.parse('https://api.openrouteservice.org/v2/directions/driving-car?api_key=$_orsApiKey&start=$startLng,$startLat&end=$endLng,$endLat');
-      final response = await http.get(url).timeout(const Duration(seconds: 4));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['features'] != null && data['features'].isNotEmpty) {
-          final feature = data['features'][0];
-          final summary = feature['properties']['summary'];
-          final geometry = feature['geometry'];
-          if (summary != null && summary['distance'] != null) {
-            final meters = summary['distance'] as num;
-            _usingORS = true;
-
-            if (geometry != null && geometry['coordinates'] != null) {
-              final List<dynamic> coords = geometry['coordinates'];
-              setState(() {
-                _routePolylinePoints = coords.map((c) {
-                  final List<dynamic> coordList = c as List<dynamic>;
-                  final double lon = coordList[0] as double;
-                  final double lat = coordList[1] as double;
-                  return LatLng(lat, lon);
-                }).toList();
-              });
-            } else {
-              setState(() {
-                _routePolylinePoints = [
-                  LatLng(startLat, startLng),
-                  LatLng(endLat, endLng),
-                ];
-              });
-            }
-
-            return meters.toDouble() / 1000.0;
-          }
-        }
-      } else {
-        print('ORS Error response code: ${response.statusCode}, body: ${response.body}');
-      }
-    } catch (e) {
-      print('ORS Routing error: $e');
-    }
-
-    // Fallback to Haversine
-    _usingORS = false;
-    setState(() {
-      _routePolylinePoints = [
-        LatLng(startLat, startLng),
-        LatLng(endLat, endLng),
-      ];
-    });
-    return _calculateHaversineDistance(startLat, startLng, endLat, endLng);
+    final straightLineKm = _calculateHaversineDistance(startLat, startLng, endLat, endLng);
+    return straightLineKm * 1.25; // 1.25 realistic road curvature factor
   }
 
   double _calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
@@ -418,19 +526,25 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
   }
 
   void _fitMapToPoints() {
-    final latCenter = (_resolvedPickupLat + _resolvedDropoffLat) / 2;
-    final lngCenter = (_resolvedPickupLng + _resolvedDropoffLng) / 2;
+    try {
+      final latCenter = (_resolvedPickupLat + _resolvedDropoffLat) / 2;
+      final lngCenter = (_resolvedPickupLng + _resolvedDropoffLng) / 2;
 
-    final latDiff = (_resolvedPickupLat - _resolvedDropoffLat).abs();
-    final lngDiff = (_resolvedPickupLng - _resolvedDropoffLng).abs();
-    final maxDiff = math.max(latDiff, lngDiff);
+      final latDiff = (_resolvedPickupLat - _resolvedDropoffLat).abs();
+      final lngDiff = (_resolvedPickupLng - _resolvedDropoffLng).abs();
+      final maxDiff = math.max(latDiff, lngDiff);
 
-    double zoom = 7.2;
-    if (maxDiff > 0.0) {
-      zoom = (11.5 - (math.log(maxDiff) / math.ln2)).clamp(6.5, 14.0);
+      double zoom = 7.2;
+      if (maxDiff > 0.001) {
+        zoom = (11.2 - (math.log(maxDiff) / math.ln2)).clamp(6.5, 14.5);
+      } else {
+        zoom = 13.0;
+      }
+
+      _mapController.move(LatLng(latCenter, lngCenter), zoom);
+    } catch (e) {
+      print('Fit map error: $e');
     }
-
-    _mapController.move(LatLng(latCenter, lngCenter), zoom);
   }
 
   // Recalculates tip dynamically based on category and distance
@@ -773,7 +887,7 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Text(
-                                          _usingORS ? 'OpenRouteService' : 'Haversine Fallback',
+                                          _usingORS ? 'Real Highway Route (OSRM)' : 'Direct Line Fallback',
                                           style: TextStyle(
                                             color: _usingORS ? const Color(0xFF10B981) : Colors.amber,
                                             fontSize: 9,
@@ -871,7 +985,7 @@ class _CreateParcelScreenState extends State<CreateParcelScreen> {
                         children: [
                           TileLayer(
                             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.carrymate.app',
+                            userAgentPackageName: 'com.picko.app',
                           ),
                           if (_routePolylinePoints.isNotEmpty)
                             PolylineLayer(

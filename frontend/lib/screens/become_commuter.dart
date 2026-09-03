@@ -16,8 +16,8 @@ class _BecomeCommuterScreenState extends State<BecomeCommuterScreen> {
   
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
-  final _startCityController = TextEditingController(text: 'Boston');
-  final _destCityController = TextEditingController(text: 'New York');
+  final _startCityController = TextEditingController(text: '');
+  final _destCityController = TextEditingController(text: '');
   
   bool _termsAccepted = false;
   bool _scanningKyc = false;
@@ -34,7 +34,7 @@ class _BecomeCommuterScreenState extends State<BecomeCommuterScreen> {
     final user = apiService.currentUser;
     _nameController = TextEditingController(text: user.name);
     _phoneController = TextEditingController(text: user.phoneNumber ?? '');
-    _destCityController.text = user.routeCity ?? 'New York';
+    _destCityController.text = user.routeCity ?? '';
   }
 
   @override

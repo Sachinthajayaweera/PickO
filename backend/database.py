@@ -97,12 +97,15 @@ def init_db(schema_path="schema.sql"):
                 # Apply dynamic migrations
                 cursor.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS receiver_name VARCHAR(255);")
                 cursor.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS receiver_phone VARCHAR(50);")
+                cursor.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS requested_traveler_id UUID REFERENCES users(id);")
                 cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500);")
                 cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS start_city VARCHAR(255);")
                 cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS nic_front_url VARCHAR(1024);")
                 cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS nic_back_url VARCHAR(1024);")
                 cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT FALSE;")
-                print("Database migrations (receiver, avatar, and commuter NIC/route details) applied successfully.")
+                cursor.execute("ALTER TABLE users ALTER COLUMN trust_score SET DEFAULT 0.00;")
+                cursor.execute("ALTER TABLE users ALTER COLUMN rating SET DEFAULT 0.00;")
+                print("Database migrations (receiver, avatar, commuter NIC/route, requested_traveler_id, and 0-based trust defaults) applied successfully.")
             else:
                 print(f"Warning: Specific schema file not found at {actual_schema_path}")
     except Exception as e:

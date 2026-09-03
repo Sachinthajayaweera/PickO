@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     current_lat DECIMAL(9, 6) DEFAULT 42.3601, -- Default Boston Lat
     current_lng DECIMAL(9, 6) DEFAULT -71.0589, -- Default Boston Lng
     kyc_verified_status BOOLEAN DEFAULT FALSE,
-    trust_score DECIMAL(5, 2) DEFAULT 50.00, -- e.g., 0.00 to 100.00
-    rating DECIMAL(3, 2) DEFAULT 5.00, -- e.g., 1.00 to 5.00
+    trust_score DECIMAL(5, 2) DEFAULT 0.00, -- e.g., 0.00 to 100.00
+    rating DECIMAL(3, 2) DEFAULT 0.00, -- e.g., 0.00 to 5.00
     avatar_url VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
