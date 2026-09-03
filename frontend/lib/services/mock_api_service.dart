@@ -819,4 +819,48 @@ class MockApiService extends ChangeNotifier {
   double _toRadians(double degree) {
     return degree * math.pi / 180.0;
   }
+
+  Future<void> updateUserLocation(String userId, double lat, double lng) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/users/$userId/location'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'latitude': lat,
+          'longitude': lng,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final userIdx = _users.indexWhere((u) => u.id == userId);
+        if (userIdx != -1) {
+          _users[userIdx] = _users[userIdx].copyWith(
+            currentLat: lat,
+            currentLng: lng,
+          );
+          if (_currentUser.id == userId) {
+            _currentUser = _users[userIdx];
+          }
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating user location: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> getParcelTracking(String parcelId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/parcels/$parcelId/tracking'),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data is Map<String, dynamic> ? data : null;
+      }
+    } catch (e) {
+      debugPrint('Error fetching parcel tracking: $e');
+    }
+    return null;
+  }
 }
+

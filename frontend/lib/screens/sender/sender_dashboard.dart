@@ -6,6 +6,7 @@ import '../../services/mock_api_service.dart';
 import '../../models/parcel.dart';
 import '../../models/user.dart';
 import 'parcel_handshake.dart';
+import 'live_tracking.dart';
 
 class SenderDashboardScreen extends StatefulWidget {
   final VoidCallback onCreateParcelTab;
@@ -555,6 +556,33 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                   Icon(Icons.person_pin_rounded, size: 14, color: Color(0xFFA78BFA)),
                                   SizedBox(width: 4),
                                   Text('Traveler Details', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          if (parcel.status == ParcelStatus.inTransit)
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LiveTrackingScreen(parcel: parcel),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981).withOpacity(0.18),
+                                foregroundColor: const Color(0xFF10B981),
+                                side: BorderSide(color: const Color(0xFF10B981).withOpacity(0.4)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.navigation_rounded, size: 14, color: Color(0xFF10B981)),
+                                  SizedBox(width: 4),
+                                  Text('Track Live', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                 ],
                               ),
                             ),
@@ -1278,6 +1306,38 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                     // Actions
                     Row(
                       children: [
+                        if (parcel.status == ParcelStatus.inTransit) ...[
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LiveTrackingScreen(parcel: parcel),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.navigation_rounded, size: 18, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Track Live',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         if (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit) ...[
                           Expanded(
                             child: ElevatedButton(
@@ -1301,14 +1361,14 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                   Icon(Icons.qr_code_2_rounded, size: 18, color: Colors.white),
                                   SizedBox(width: 6),
                                   Text(
-                                    'Show QR Code',
+                                    'QR Code',
                                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                         ],
                         Expanded(
                           child: OutlinedButton(

@@ -148,6 +148,10 @@ class AcceptParcelRequest(BaseModel):
 class RequestDeliveryRequest(BaseModel):
     travelerId: str
 
+class UpdateLocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+
 class RateDeliveryRequest(BaseModel):
     rating_stars: int
     feedback_text: Optional[str] = None
@@ -853,6 +857,38 @@ def get_all_users():
     finally:
         release_db_connection(conn)
 
+@app.post("/api/users/{id}/location")
+def update_user_location(id: str, req: UpdateLocationRequest):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """UPDATE users 
+                   SET current_lat = %s, current_lng = %s 
+                   WHERE id = %s 
+                   RETURNING id, name, current_lat, current_lng""",
+                (req.latitude, req.longitude, id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="User not found")
+            conn.commit()
+            return {
+                "message": "Location updated successfully.",
+                "user_id": str(row[0]),
+                "name": row[1],
+                "current_lat": float(row[2]),
+                "current_lng": float(row[3])
+            }
+    except HTTPException as he:
+        conn.rollback()
+        raise he
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        release_db_connection(conn)
+
 # --- WALLET ENDPOINTS ---
 
 @app.get("/api/wallets/{userId}")
@@ -1422,33 +1458,6 @@ def rate_delivery(id: str, req: RateDeliveryRequest):
     finally:
         release_db_connection(conn)
 
-@app.get("/api/parcels/{id}/tracking")
-def get_parcel_tracking(id: str):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """SELECT id, action, scanned_by, scan_lat, scan_lng, scanned_at
-                   FROM parcel_scans WHERE parcel_id = %s ORDER BY scanned_at ASC""",
-                (id,)
-            )
-            rows = cursor.fetchall()
-            return [
-                {
-                    "id": str(row[0]),
-                    "action": row[1],
-                    "scanned_by": str(row[2]),
-                    "latitude": float(row[3]),
-                    "longitude": float(row[4]),
-                    "timestamp": row[5].isoformat()
-                }
-                for row in rows
-            ]
-    finally:
-        release_db_connection(conn)
-
-# --- TRUST-AWARE MATCHING ALGORITHM ---
-
 # Helper math function for fallback Haversine distance
 def python_haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0 # Earth radius in km
@@ -1457,6 +1466,127 @@ def python_haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
+@app.get("/api/parcels/{id}/tracking")
+def get_parcel_tracking(id: str):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Fetch parcel details
+            cursor.execute(
+                """SELECT id, sender_id, traveler_id, category_type, liability_value, status,
+                          pickup_city, dropoff_city, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+                          description, tip_amount, verification_qr_code, sealed_package_photo_url, created_at,
+                          receiver_name, receiver_phone
+                   FROM parcels WHERE id = %s""",
+                (id,)
+            )
+            p_row = cursor.fetchone()
+            if not p_row:
+                raise HTTPException(status_code=404, detail="Parcel not found")
+            
+            # 2. Fetch traveler details if assigned
+            traveler_data = None
+            traveler_lat = None
+            traveler_lng = None
+            traveler_id = p_row[2]
+            if traveler_id:
+                cursor.execute(
+                    """SELECT id, name, username, phone_number, email, current_lat, current_lng, trust_score, rating, avatar_url, route_city
+                       FROM users WHERE id = %s""",
+                    (traveler_id,)
+                )
+                t_row = cursor.fetchone()
+                if t_row:
+                    traveler_lat = float(t_row[5]) if t_row[5] is not None else None
+                    traveler_lng = float(t_row[6]) if t_row[6] is not None else None
+                    traveler_data = {
+                        "id": str(t_row[0]),
+                        "name": t_row[1],
+                        "username": t_row[2],
+                        "phoneNumber": t_row[3],
+                        "email": t_row[4],
+                        "currentLat": traveler_lat,
+                        "currentLng": traveler_lng,
+                        "trustScore": float(t_row[7]) if t_row[7] is not None else 0.0,
+                        "rating": float(t_row[8]) if t_row[8] is not None else 0.0,
+                        "avatarUrl": t_row[9],
+                        "routeCity": t_row[10]
+                    }
+
+            # 3. Fetch scans history
+            cursor.execute(
+                """SELECT id, action, scanned_by, scan_lat, scan_lng, scanned_at
+                   FROM parcel_scans WHERE parcel_id = %s ORDER BY scanned_at ASC""",
+                (id,)
+            )
+            scan_rows = cursor.fetchall()
+            scans_list = [
+                {
+                    "id": str(row[0]),
+                    "action": row[1],
+                    "scanned_by": str(row[2]),
+                    "latitude": float(row[3]),
+                    "longitude": float(row[4]),
+                    "timestamp": row[5].isoformat()
+                }
+                for row in scan_rows
+            ]
+
+            # 4. Compute navigation metrics
+            pickup_lat = float(p_row[8])
+            pickup_lng = float(p_row[9])
+            dropoff_lat = float(p_row[10])
+            dropoff_lng = float(p_row[11])
+            total_km = round(python_haversine(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng), 1)
+
+            ref_lat = traveler_lat if traveler_lat is not None else pickup_lat
+            ref_lng = traveler_lng if traveler_lng is not None else pickup_lng
+            remaining_km = round(python_haversine(ref_lat, ref_lng, dropoff_lat, dropoff_lng), 1)
+            
+            if p_row[5] == 'Delivered':
+                eta_minutes = 0
+                remaining_km = 0.0
+            elif remaining_km > 0.2:
+                eta_minutes = max(1, int(round((remaining_km / 45.0) * 60.0)))
+            else:
+                eta_minutes = 1
+
+            return {
+                "parcel": {
+                    "id": str(p_row[0]),
+                    "senderId": str(p_row[1]),
+                    "travelerId": str(p_row[2]) if p_row[2] else None,
+                    "category": p_row[3],
+                    "liabilityValue": float(p_row[4]),
+                    "status": p_row[5],
+                    "pickupCity": p_row[6],
+                    "dropoffCity": p_row[7],
+                    "pickupLat": pickup_lat,
+                    "pickupLng": pickup_lng,
+                    "dropoffLat": dropoff_lat,
+                    "dropoffLng": dropoff_lng,
+                    "description": p_row[12],
+                    "tipAmount": float(p_row[13]),
+                    "qrCodeData": p_row[14],
+                    "photoUrl": p_row[15],
+                    "createdAt": p_row[16].isoformat() if p_row[16] else None,
+                    "receiverName": p_row[17],
+                    "receiverPhone": p_row[18]
+                },
+                "traveler": traveler_data,
+                "scans": scans_list,
+                "navigation": {
+                    "totalDistanceKm": total_km,
+                    "remainingDistanceKm": remaining_km,
+                    "etaMinutes": eta_minutes,
+                    "commuterLat": traveler_lat,
+                    "commuterLng": traveler_lng,
+                    "isLive": (p_row[5] == 'In Transit') and (traveler_lat is not None)
+                }
+            }
+    finally:
+        release_db_connection(conn)
 
 @app.get("/api/parcels/{id}/matches")
 def match_travelers(id: str):

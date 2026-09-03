@@ -649,7 +649,7 @@ class TravelerDashboardScreen extends StatelessWidget {
                 ],
               ),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text('Your Tip', style: TextStyle(color: Colors.grey, fontSize: 10)),
                   Text(
@@ -658,42 +658,48 @@ class TravelerDashboardScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              if (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ScanQrScreen(parcel: parcel),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        parcel.status == ParcelStatus.readyForPickup ? Icons.camera_alt_rounded : Icons.qr_code_scanner_rounded,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        parcel.status == ParcelStatus.readyForPickup ? 'Pickup' : 'Deliver',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Text(
-                  parcel.status == ParcelStatus.delivered ? 'Completed' : 'Stolen / Penalized',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 11, fontStyle: FontStyle.italic),
-                ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit)
+                ? ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ScanQrScreen(parcel: parcel),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          parcel.status == ParcelStatus.readyForPickup
+                              ? Icons.camera_alt_rounded
+                              : Icons.qr_code_scanner_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          parcel.status == ParcelStatus.readyForPickup ? 'Pickup' : 'Deliver',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  )
+                : Text(
+                    parcel.status == ParcelStatus.delivered ? 'Completed' : 'Stolen / Penalized',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 11, fontStyle: FontStyle.italic),
+                  ),
           ),
         ],
       ),

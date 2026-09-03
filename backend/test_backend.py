@@ -286,6 +286,25 @@ def run_tests():
             assert float(c1_locked) == 1500.0
             print("SUCCESS: Test 7 Passed: Commuter matching gated by liability balance and direct request accepted.")
 
+            # --- TEST 8: LIVE TRACKING & LOCATION BROADCAST ---
+            from main import update_user_location, UpdateLocationRequest, get_parcel_tracking
+            # Commuter broadcasts current GPS coordinates (e.g. moving between Colombo and Kandy, at Warakapola: 7.2236, 80.1983)
+            loc_res = update_user_location(c1_id, UpdateLocationRequest(latitude=7.2236, longitude=80.1983))
+            assert loc_res["current_lat"] == 7.2236
+            assert loc_res["current_lng"] == 80.1983
+            
+            # Fetch enriched parcel tracking
+            tracking_data = get_parcel_tracking(p_match_id)
+            assert tracking_data["parcel"]["id"] == p_match_id
+            assert tracking_data["traveler"] is not None
+            assert tracking_data["traveler"]["id"] == c1_id
+            assert tracking_data["traveler"]["currentLat"] == 7.2236
+            assert tracking_data["traveler"]["currentLng"] == 80.1983
+            assert "navigation" in tracking_data
+            assert tracking_data["navigation"]["remainingDistanceKm"] > 0.0
+            assert tracking_data["navigation"]["etaMinutes"] > 0
+            print("SUCCESS: Test 8 Passed: Location updated and enriched live tracking returned navigation ETA & coordinates.")
+
             # --- AUTH TESTS ---
             print("\nRunning new Authentication and Profile Management tests...")
             from main import (
