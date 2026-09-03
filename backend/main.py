@@ -107,8 +107,8 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Security(sec
 class RegisterUserRequest(BaseModel):
     name: str
     kyc_verified: Optional[bool] = False
-    trust_score: Optional[float] = 50.0
-    rating: Optional[float] = 5.0
+    trust_score: Optional[float] = 0.0
+    rating: Optional[float] = 0.0
 
 class AuthRegisterRequest(BaseModel):
     username: str
@@ -145,6 +145,13 @@ class AcceptParcelRequest(BaseModel):
     travelerId: str
     parcelId: str
 
+class RequestDeliveryRequest(BaseModel):
+    travelerId: str
+
+class UpdateLocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+
 class RateDeliveryRequest(BaseModel):
     rating_stars: int
     feedback_text: Optional[str] = None
@@ -164,36 +171,34 @@ class CreateParcelRequest(BaseModel):
     dropoff_lng: float
     tip_amount: float
 
-# Helper function to dynamically sync trust score
+# Helper function to dynamically sync trust score and rating based on user-specified formulas:
+# 1. Average Star Rating = Total Stars / Total Deliveries (starts at 0.0 for new users)
+# 2. Trust Score Percentage = (Total Stars / (Total Deliveries * 5)) * 100 (starts at 0.0 for new users)
 def sync_user_trust_score(cursor, user_id: str):
-    cursor.execute("SELECT rating, kyc_verified_status FROM users WHERE id = %s", (user_id,))
-    user_row = cursor.fetchone()
-    if not user_row:
-        return
-    rating = float(user_row[0])
-    kyc_verified = bool(user_row[1])
+    cursor.execute(
+        """SELECT COUNT(*), COALESCE(SUM(rating_stars), 0)
+           FROM parcels
+           WHERE traveler_id = %s AND status = 'Delivered' AND rating_stars IS NOT NULL""",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    total_deliveries = row[0] if row else 0
+    total_stars = float(row[1]) if row else 0.0
     
-    cursor.execute("SELECT COUNT(*) FROM parcels WHERE traveler_id = %s", (user_id,))
-    total_runs = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM parcels WHERE traveler_id = %s AND status = 'Delivered'", (user_id,))
-    successful_runs = cursor.fetchone()[0]
-    
-    success_rate = (successful_runs / total_runs) if total_runs > 0 else 1.0
-    
-    # Reliability Trust Score calculation algorithm
-    rating_factor = (rating / 5.0) * 30.0  # 30% weight
-    success_factor = success_rate * 50.0   # 50% weight
-    volume_bonus = min(successful_runs * 1.0, 10.0)  # 10% weight (1% per delivery, max 10%)
-    kyc_bonus = 10.0 if kyc_verified else 0.0  # 10% weight
-    
-    computed_trust = rating_factor + success_factor + volume_bonus + kyc_bonus
-    computed_trust = max(0.0, min(100.0, computed_trust))
+    if total_deliveries == 0:
+        avg_rating = 0.0
+        trust_percentage = 0.0
+    else:
+        # Formula 1: Average Star Rating = Total Stars / Total Deliveries
+        avg_rating = round(total_stars / total_deliveries, 1)
+        # Formula 2: Trust Score Percentage = (Total Stars / (Total Deliveries * 5)) * 100
+        trust_percentage = round((total_stars / (total_deliveries * 5.0)) * 100.0, 1)
     
     cursor.execute(
-        "UPDATE users SET trust_score = %s WHERE id = %s",
-        (computed_trust, user_id)
+        "UPDATE users SET rating = %s, trust_score = %s WHERE id = %s",
+        (avg_rating, trust_percentage, user_id)
     )
+    return avg_rating, trust_percentage
 
 def seed_db(cursor):
     cursor.execute("SELECT COUNT(*) FROM users;")
@@ -203,7 +208,7 @@ def seed_db(cursor):
         # Senders
         cursor.execute(
             """INSERT INTO users (id, name, username, email, phone_number, password_hash, trust_score, rating, kyc_verified_status, is_commuter)
-               VALUES ('00000000-0000-0000-0000-000000000001', 'Alice (Sender)', 'alice', 'alice@picko.com', '+16175550100', %s, 98.00, 4.90, TRUE, FALSE)""",
+               VALUES ('00000000-0000-0000-0000-000000000001', 'Alice (Sender)', 'alice', 'alice@picko.com', '+16175550100', %s, 0.00, 0.00, TRUE, FALSE)""",
             (h_pass,)
         )
         cursor.execute(
@@ -214,7 +219,7 @@ def seed_db(cursor):
         # Travelers
         cursor.execute(
             """INSERT INTO users (id, name, username, email, phone_number, password_hash, trust_score, rating, kyc_verified_status, is_commuter, route_city, current_lat, current_lng)
-               VALUES ('00000000-0000-0000-0000-000000000002', 'Bob (Commuter)', 'bob', 'bob@picko.com', '+16175550199', %s, 85.00, 4.50, TRUE, TRUE, 'Kandy', 6.9271, 79.8612)""",
+               VALUES ('00000000-0000-0000-0000-000000000002', 'Bob (Commuter)', 'bob', 'bob@picko.com', '+16175550199', %s, 84.00, 4.20, TRUE, TRUE, 'Kandy', 6.9271, 79.8612)""",
             (h_pass,)
         )
         cursor.execute(
@@ -234,7 +239,7 @@ def seed_db(cursor):
         
         cursor.execute(
             """INSERT INTO users (id, name, username, email, phone_number, password_hash, trust_score, rating, kyc_verified_status, is_commuter, route_city, current_lat, current_lng)
-               VALUES ('00000000-0000-0000-0000-000000000004', 'Dave (Commuter)', 'dave', 'dave@picko.com', '+16175550177', %s, 72.00, 4.10, TRUE, TRUE, 'Kandy', 6.9271, 79.8612)""",
+               VALUES ('00000000-0000-0000-0000-000000000004', 'Dave (Commuter)', 'dave', 'dave@picko.com', '+16175550177', %s, 72.00, 3.60, TRUE, TRUE, 'Kandy', 6.9271, 79.8612)""",
             (h_pass,)
         )
         cursor.execute(
@@ -311,10 +316,10 @@ def auth_register(req: AuthRegisterRequest):
             cursor.execute("BEGIN;")
             # Hash password
             pw_hash = hash_password(req.password)
-            # Create user (set name = username to preserve backward compatibility)
+            # Create user (set name = username to preserve backward compatibility, 0.0 defaults for new users)
             cursor.execute(
                 """INSERT INTO users (name, username, email, phone_number, password_hash, kyc_verified_status, trust_score, rating)
-                   VALUES (%s, %s, %s, %s, %s, FALSE, 50.00, 5.00)
+                   VALUES (%s, %s, %s, %s, %s, FALSE, 0.00, 0.00)
                    RETURNING id, name, username, email, phone_number, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, created_at, avatar_url""",
                 (req.username, req.username, req.email, req.phone_number, pw_hash)
             )
@@ -667,7 +672,7 @@ def get_user(id: str):
             conn.commit()
             
             cursor.execute(
-                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, created_at, avatar_url, start_city, nic_front_url, nic_back_url, terms_accepted 
+                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, created_at, avatar_url, start_city, nic_front_url, nic_back_url, terms_accepted, username, email, phone_number 
                    FROM users WHERE id = %s""", (id,)
             )
             row = cursor.fetchone()
@@ -688,7 +693,10 @@ def get_user(id: str):
                 "start_city": row[11],
                 "nic_front_url": row[12],
                 "nic_back_url": row[13],
-                "terms_accepted": row[14]
+                "terms_accepted": row[14],
+                "username": row[15],
+                "email": row[16],
+                "phone_number": row[17]
             }
     finally:
         release_db_connection(conn)
@@ -823,7 +831,7 @@ def get_all_users():
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, avatar_url 
+                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating, avatar_url, username, email, phone_number, start_city 
                    FROM users ORDER BY created_at DESC"""
             )
             rows = cursor.fetchall()
@@ -838,10 +846,46 @@ def get_all_users():
                     "kyc_verified_status": row[6],
                     "trust_score": float(row[7]),
                     "rating": float(row[8]),
-                    "avatarUrl": row[9]
+                    "avatarUrl": row[9],
+                    "username": row[10],
+                    "email": row[11],
+                    "phone_number": row[12],
+                    "start_city": row[13]
                 }
                 for row in rows
             ]
+    finally:
+        release_db_connection(conn)
+
+@app.post("/api/users/{id}/location")
+def update_user_location(id: str, req: UpdateLocationRequest):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """UPDATE users 
+                   SET current_lat = %s, current_lng = %s 
+                   WHERE id = %s 
+                   RETURNING id, name, current_lat, current_lng""",
+                (req.latitude, req.longitude, id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="User not found")
+            conn.commit()
+            return {
+                "message": "Location updated successfully.",
+                "user_id": str(row[0]),
+                "name": row[1],
+                "current_lat": float(row[2]),
+                "current_lng": float(row[3])
+            }
+    except HTTPException as he:
+        conn.rollback()
+        raise he
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         release_db_connection(conn)
 
@@ -956,7 +1000,7 @@ def accept_parcel(req: AcceptParcelRequest):
             
             # Update parcel status to Accepted
             cursor.execute(
-                "UPDATE parcels SET status = 'Accepted', traveler_id = %s WHERE id = %s RETURNING *",
+                "UPDATE parcels SET status = 'Accepted', traveler_id = %s, requested_traveler_id = NULL WHERE id = %s RETURNING *",
                 (req.travelerId, req.parcelId)
             )
             updated_parcel = cursor.fetchone()
@@ -966,7 +1010,7 @@ def accept_parcel(req: AcceptParcelRequest):
                 "message": "Parcel accepted. Escrow locked.",
                 "parcel": {
                     "id": str(updated_parcel[0]),
-                    "status": updated_parcel[4],
+                    "status": updated_parcel[5],
                     "traveler_id": str(updated_parcel[2])
                 }
             }
@@ -1176,7 +1220,8 @@ def get_all_parcels():
                           pickup_city, dropoff_city, description, tip_amount,
                           pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
                           verification_qr_code, sealed_package_photo_url, created_at,
-                          rating_stars, feedback_text, receiver_name, receiver_phone
+                          rating_stars, feedback_text, receiver_name, receiver_phone,
+                          requested_traveler_id
                    FROM parcels ORDER BY created_at DESC"""
             )
             rows = cursor.fetchall()
@@ -1202,7 +1247,8 @@ def get_all_parcels():
                     "ratingStars": row[17],
                     "feedbackText": row[18],
                     "receiverName": row[19],
-                    "receiverPhone": row[20]
+                    "receiverPhone": row[20],
+                    "requestedTravelerId": str(row[21]) if row[21] else None
                 }
                 for row in rows
             ]
@@ -1392,28 +1438,15 @@ def rate_delivery(id: str, req: RateDeliveryRequest):
                 (req.rating_stars, req.feedback_text, id)
             )
             
-            # Recalculate average rating for the traveler
-            cursor.execute(
-                "SELECT AVG(rating_stars) FROM parcels WHERE traveler_id = %s AND rating_stars IS NOT NULL",
-                (traveler_id,)
-            )
-            avg_rating_row = cursor.fetchone()
-            avg_rating = float(avg_rating_row[0]) if avg_rating_row and avg_rating_row[0] is not None else 5.0
-            
-            # Update traveler rating in users table
-            cursor.execute(
-                "UPDATE users SET rating = %s WHERE id = %s",
-                (avg_rating, traveler_id)
-            )
-            
-            # Sync trust score
-            sync_user_trust_score(cursor, traveler_id)
+            # Sync traveler average rating and trust score
+            avg_rating, trust_score = sync_user_trust_score(cursor, traveler_id)
             
             cursor.execute("COMMIT;")
             return {
                 "message": "Delivery rated successfully.",
                 "traveler_id": traveler_id,
-                "new_rating": avg_rating
+                "new_rating": avg_rating,
+                "new_trust_score": trust_score
             }
             
     except HTTPException as he:
@@ -1425,33 +1458,6 @@ def rate_delivery(id: str, req: RateDeliveryRequest):
     finally:
         release_db_connection(conn)
 
-@app.get("/api/parcels/{id}/tracking")
-def get_parcel_tracking(id: str):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """SELECT id, action, scanned_by, scan_lat, scan_lng, scanned_at
-                   FROM parcel_scans WHERE parcel_id = %s ORDER BY scanned_at ASC""",
-                (id,)
-            )
-            rows = cursor.fetchall()
-            return [
-                {
-                    "id": str(row[0]),
-                    "action": row[1],
-                    "scanned_by": str(row[2]),
-                    "latitude": float(row[3]),
-                    "longitude": float(row[4]),
-                    "timestamp": row[5].isoformat()
-                }
-                for row in rows
-            ]
-    finally:
-        release_db_connection(conn)
-
-# --- TRUST-AWARE MATCHING ALGORITHM ---
-
 # Helper math function for fallback Haversine distance
 def python_haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0 # Earth radius in km
@@ -1461,6 +1467,127 @@ def python_haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
+@app.get("/api/parcels/{id}/tracking")
+def get_parcel_tracking(id: str):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Fetch parcel details
+            cursor.execute(
+                """SELECT id, sender_id, traveler_id, category_type, liability_value, status,
+                          pickup_city, dropoff_city, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+                          description, tip_amount, verification_qr_code, sealed_package_photo_url, created_at,
+                          receiver_name, receiver_phone
+                   FROM parcels WHERE id = %s""",
+                (id,)
+            )
+            p_row = cursor.fetchone()
+            if not p_row:
+                raise HTTPException(status_code=404, detail="Parcel not found")
+            
+            # 2. Fetch traveler details if assigned
+            traveler_data = None
+            traveler_lat = None
+            traveler_lng = None
+            traveler_id = p_row[2]
+            if traveler_id:
+                cursor.execute(
+                    """SELECT id, name, username, phone_number, email, current_lat, current_lng, trust_score, rating, avatar_url, route_city
+                       FROM users WHERE id = %s""",
+                    (traveler_id,)
+                )
+                t_row = cursor.fetchone()
+                if t_row:
+                    traveler_lat = float(t_row[5]) if t_row[5] is not None else None
+                    traveler_lng = float(t_row[6]) if t_row[6] is not None else None
+                    traveler_data = {
+                        "id": str(t_row[0]),
+                        "name": t_row[1],
+                        "username": t_row[2],
+                        "phoneNumber": t_row[3],
+                        "email": t_row[4],
+                        "currentLat": traveler_lat,
+                        "currentLng": traveler_lng,
+                        "trustScore": float(t_row[7]) if t_row[7] is not None else 0.0,
+                        "rating": float(t_row[8]) if t_row[8] is not None else 0.0,
+                        "avatarUrl": t_row[9],
+                        "routeCity": t_row[10]
+                    }
+
+            # 3. Fetch scans history
+            cursor.execute(
+                """SELECT id, action, scanned_by, scan_lat, scan_lng, scanned_at
+                   FROM parcel_scans WHERE parcel_id = %s ORDER BY scanned_at ASC""",
+                (id,)
+            )
+            scan_rows = cursor.fetchall()
+            scans_list = [
+                {
+                    "id": str(row[0]),
+                    "action": row[1],
+                    "scanned_by": str(row[2]),
+                    "latitude": float(row[3]),
+                    "longitude": float(row[4]),
+                    "timestamp": row[5].isoformat()
+                }
+                for row in scan_rows
+            ]
+
+            # 4. Compute navigation metrics
+            pickup_lat = float(p_row[8])
+            pickup_lng = float(p_row[9])
+            dropoff_lat = float(p_row[10])
+            dropoff_lng = float(p_row[11])
+            total_km = round(python_haversine(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng), 1)
+
+            ref_lat = traveler_lat if traveler_lat is not None else pickup_lat
+            ref_lng = traveler_lng if traveler_lng is not None else pickup_lng
+            remaining_km = round(python_haversine(ref_lat, ref_lng, dropoff_lat, dropoff_lng), 1)
+            
+            if p_row[5] == 'Delivered':
+                eta_minutes = 0
+                remaining_km = 0.0
+            elif remaining_km > 0.2:
+                eta_minutes = max(1, int(round((remaining_km / 45.0) * 60.0)))
+            else:
+                eta_minutes = 1
+
+            return {
+                "parcel": {
+                    "id": str(p_row[0]),
+                    "senderId": str(p_row[1]),
+                    "travelerId": str(p_row[2]) if p_row[2] else None,
+                    "category": p_row[3],
+                    "liabilityValue": float(p_row[4]),
+                    "status": p_row[5],
+                    "pickupCity": p_row[6],
+                    "dropoffCity": p_row[7],
+                    "pickupLat": pickup_lat,
+                    "pickupLng": pickup_lng,
+                    "dropoffLat": dropoff_lat,
+                    "dropoffLng": dropoff_lng,
+                    "description": p_row[12],
+                    "tipAmount": float(p_row[13]),
+                    "qrCodeData": p_row[14],
+                    "photoUrl": p_row[15],
+                    "createdAt": p_row[16].isoformat() if p_row[16] else None,
+                    "receiverName": p_row[17],
+                    "receiverPhone": p_row[18]
+                },
+                "traveler": traveler_data,
+                "scans": scans_list,
+                "navigation": {
+                    "totalDistanceKm": total_km,
+                    "remainingDistanceKm": remaining_km,
+                    "etaMinutes": eta_minutes,
+                    "commuterLat": traveler_lat,
+                    "commuterLng": traveler_lng,
+                    "isLive": (p_row[5] == 'In Transit') and (traveler_lat is not None)
+                }
+            }
+    finally:
+        release_db_connection(conn)
+
 @app.get("/api/parcels/{id}/matches")
 def match_travelers(id: str):
     conn = get_db_connection()
@@ -1468,16 +1595,17 @@ def match_travelers(id: str):
         with conn.cursor() as cursor:
             # 1. Fetch parcel details
             cursor.execute(
-                """SELECT id, sender_id, category_type, liability_value, dropoff_city, pickup_lat, pickup_lng
+                """SELECT id, sender_id, category_type, liability_value, dropoff_city, pickup_lat, pickup_lng, requested_traveler_id
                    FROM parcels WHERE id = %s""", (id,)
             )
             parcel = cursor.fetchone()
             if not parcel:
                 raise HTTPException(status_code=404, detail="Parcel not found")
                 
-            p_id, p_sender, p_category, p_liability, p_dropoff_city, p_lat, p_lng = parcel
+            p_id, p_sender, p_category, p_liability, p_dropoff_city, p_lat, p_lng, p_requested_traveler = parcel
             p_lat = float(p_lat)
             p_lng = float(p_lng)
+            p_liability_val = float(p_liability)
             
             # Trust Gating requirements based on Category
             min_trust_score = 0.0
@@ -1486,22 +1614,24 @@ def match_travelers(id: str):
             elif p_category == 'C':
                 min_trust_score = 95.0
             
-            # Fetch all active commuters (excluding sender themselves)
+            # Fetch active commuters who have sufficient wallet balance to cover the parcel liability value
             cursor.execute(
-                """SELECT id, name, is_commuter, route_city, current_lat, current_lng, kyc_verified_status, trust_score, rating
-                   FROM users
-                   WHERE is_commuter = TRUE AND id != %s""",
-                (p_sender,)
+                """SELECT u.id, u.name, u.is_commuter, u.route_city, u.current_lat, u.current_lng, u.kyc_verified_status, u.trust_score, u.rating, COALESCE(w.available_balance, 0.0), u.avatar_url
+                   FROM users u
+                   LEFT JOIN wallets w ON u.id = w.user_id
+                   WHERE u.is_commuter = TRUE AND u.id != %s AND COALESCE(w.available_balance, 0.0) >= %s""",
+                (p_sender, p_liability_val)
             )
             users_rows = cursor.fetchall()
             
             match_results = []
             for u in users_rows:
-                u_id, u_name, u_is_commuter, u_route_city, u_lat, u_lng, u_kyc, u_trust, u_rating = u
+                u_id, u_name, u_is_commuter, u_route_city, u_lat, u_lng, u_kyc, u_trust, u_rating, u_balance, u_avatar = u
                 u_trust = float(u_trust)
                 u_rating = float(u_rating)
                 u_lat = float(u_lat) if u_lat else 0.0
                 u_lng = float(u_lng) if u_lng else 0.0
+                u_avail = float(u_balance)
                 
                 # Step 1: Spatial Filter (ST_DWithin 5km radius check)
                 if POSTGIS_AVAILABLE:
@@ -1557,20 +1687,70 @@ def match_travelers(id: str):
                         "current_lng": u_lng,
                         "kyc_verified_status": u_kyc,
                         "trust_score": u_trust,
-                        "rating": u_rating
+                        "rating": u_rating,
+                        "avatarUrl": u_avatar,
+                        "availableBalance": u_avail
                     },
                     "distance": round(dist_km, 2),
                     "passesSpatial": passes_spatial,
                     "passesRoute": passes_route,
                     "passesTrustGate": passes_trust_gate and passes_kyc_gate,
                     "dynamicScore": round(dynamic_score, 2),
-                    "isEligible": is_eligible
+                    "isEligible": is_eligible,
+                    "isRequested": (str(p_requested_traveler) == str(u_id)) if p_requested_traveler else False
                 })
             
             # Sort: eligible first, then dynamicScore descending
             match_results.sort(key=lambda x: (1 if x["isEligible"] else 0, x["dynamicScore"]), reverse=True)
             return match_results
             
+    finally:
+        release_db_connection(conn)
+
+@app.post("/api/parcels/{id}/request")
+def request_traveler(id: str, req: RequestDeliveryRequest):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, status, sender_id FROM parcels WHERE id = %s", (id,))
+            parcel = cursor.fetchone()
+            if not parcel:
+                raise HTTPException(status_code=404, detail="Parcel not found")
+            if parcel[1] != 'Pending':
+                raise HTTPException(status_code=400, detail=f"Cannot request traveler. Parcel status is {parcel[1]}")
+            
+            cursor.execute("SELECT id, name FROM users WHERE id = %s AND is_commuter = TRUE", (req.travelerId,))
+            traveler = cursor.fetchone()
+            if not traveler:
+                raise HTTPException(status_code=404, detail="Commuter traveler not found")
+            
+            cursor.execute(
+                "UPDATE parcels SET requested_traveler_id = %s WHERE id = %s",
+                (req.travelerId, id)
+            )
+            conn.commit()
+            return {
+                "message": f"Delivery request sent to {traveler[1]}.",
+                "parcelId": id,
+                "requestedTravelerId": req.travelerId
+            }
+    except HTTPException as he:
+        conn.rollback()
+        raise he
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        release_db_connection(conn)
+
+@app.delete("/api/parcels/{id}/request")
+def cancel_request_traveler(id: str):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE parcels SET requested_traveler_id = NULL WHERE id = %s", (id,))
+            conn.commit()
+            return {"message": "Delivery request cancelled.", "parcelId": id}
     finally:
         release_db_connection(conn)
 

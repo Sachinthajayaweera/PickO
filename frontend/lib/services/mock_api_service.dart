@@ -31,8 +31,8 @@ class MockApiService extends ChangeNotifier {
     id: '00000000-0000-0000-0000-000000000001',
     name: 'Alice (Sender)',
     isKycVerified: true,
-    trustScore: 0.98,
-    rating: 4.9,
+    trustScore: 0.0,
+    rating: 0.0,
     avatarUrl: null,
     isCommuter: false,
   );
@@ -57,6 +57,45 @@ class MockApiService extends ChangeNotifier {
   bool get isSenderView => _isSenderView;
   bool get isRegistered => _isRegistered;
   String get selectedTravelerId => _selectedTravelerId;
+
+  User? getUser(String userId) {
+    try {
+      return _users.firstWhere((u) => u.id == userId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<User?> fetchUser(String userId) async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/api/users/$userId'));
+      if (response.statusCode == 200) {
+        final u = json.decode(response.body);
+        final user = User(
+          id: u['id'],
+          name: u['name'],
+          username: u['username'],
+          email: u['email'],
+          phoneNumber: u['phone_number'],
+          isKycVerified: u['kyc_verified_status'] ?? false,
+          trustScore: (u['trust_score'] as num).toDouble() / 100.0,
+          rating: (u['rating'] as num).toDouble(),
+          avatarUrl: u['avatarUrl'],
+          isCommuter: u['is_commuter'] ?? true,
+          routeCity: u['route_city'],
+        );
+        final idx = _users.indexWhere((existing) => existing.id == user.id);
+        if (idx != -1) {
+          _users[idx] = user;
+        } else {
+          _users.add(user);
+        }
+        notifyListeners();
+        return user;
+      }
+    } catch (_) {}
+    return getUser(userId);
+  }
 
   // Map category string from DB to enum
   ParcelCategory _mapCategory(String cat) {
@@ -167,6 +206,7 @@ class MockApiService extends ChangeNotifier {
             feedbackText: p['feedbackText'],
             receiverName: p['receiverName'],
             receiverPhone: p['receiverPhone'],
+            requestedTravelerId: p['requestedTravelerId'],
           ));
         }
       }
@@ -431,6 +471,48 @@ class MockApiService extends ChangeNotifier {
     return _wallets[userId] ?? Wallet(userId: userId, availableBalance: 0.0, lockedEscrowBalance: 0.0);
   }
 
+  Future<void> requestDelivery(String parcelId, String travelerId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/parcels/$parcelId/request'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'travelerId': travelerId}),
+      );
+      if (response.statusCode == 200) {
+        final idx = _parcels.indexWhere((p) => p.id == parcelId);
+        if (idx != -1) {
+          _parcels[idx] = _parcels[idx].copyWith(requestedTravelerId: travelerId);
+        }
+        notifyListeners();
+      } else {
+        final err = json.decode(response.body);
+        throw Exception(err['detail'] ?? 'Failed to send delivery request.');
+      }
+    } catch (e) {
+      throw Exception('Server error: $e');
+    }
+  }
+
+  Future<void> cancelDeliveryRequest(String parcelId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/parcels/$parcelId/request'),
+      );
+      if (response.statusCode == 200) {
+        final idx = _parcels.indexWhere((p) => p.id == parcelId);
+        if (idx != -1) {
+          _parcels[idx] = _parcels[idx].copyWith(requestedTravelerId: null);
+        }
+        notifyListeners();
+      } else {
+        final err = json.decode(response.body);
+        throw Exception(err['detail'] ?? 'Failed to cancel delivery request.');
+      }
+    } catch (e) {
+      throw Exception('Server error: $e');
+    }
+  }
+
   Future<void> depositMockFunds(String userId, double amount) async {
     try {
       final response = await http.post(
@@ -629,7 +711,26 @@ class MockApiService extends ChangeNotifier {
         throw Exception(err['detail'] ?? 'Failed to submit rating.');
       }
     } catch (e) {
-      throw Exception('Server error: $e');
+      // Local fallback calculation for offline or demo mode
+      final pIdx = _parcels.indexWhere((p) => p.id == parcelId);
+      if (pIdx != -1) {
+        _parcels[pIdx] = _parcels[pIdx].copyWith(ratingStars: stars, feedbackText: feedback.trim());
+        final travelerId = _parcels[pIdx].travelerId;
+        if (travelerId != null) {
+          final ratedParcels = _parcels.where((p) => p.travelerId == travelerId && p.ratingStars != null).toList();
+          final totalDeliveries = ratedParcels.length;
+          final totalStars = ratedParcels.fold<double>(0.0, (sum, p) => sum + (p.ratingStars ?? 0));
+          if (totalDeliveries > 0) {
+            final avgRating = totalStars / totalDeliveries;
+            final trustPercent = totalStars / (totalDeliveries * 5.0);
+            final uIdx = _users.indexWhere((u) => u.id == travelerId);
+            if (uIdx != -1) {
+              _users[uIdx] = _users[uIdx].copyWith(rating: avgRating, trustScore: trustPercent);
+            }
+          }
+        }
+        notifyListeners();
+      }
     }
   }
 
@@ -648,6 +749,10 @@ class MockApiService extends ChangeNotifier {
     for (var traveler in _users) {
       if (!traveler.isCommuter) continue; // Skip non-commuters
       if (traveler.id == parcel.senderId) continue; // Skip sender themselves
+
+      // Step 0: Collateral Verification (Only appear when liability value is available in wallet)
+      final wallet = getWallet(traveler.id);
+      if (wallet.availableBalance < parcel.liabilityValue) continue;
 
       // Step 1: Spatial Filter (ST_DWithin 5km check)
       double dist = _haversine(parcel.pickupLat, parcel.pickupLng, traveler.currentLat ?? 42.3601, traveler.currentLng ?? -71.0589);
@@ -714,4 +819,48 @@ class MockApiService extends ChangeNotifier {
   double _toRadians(double degree) {
     return degree * math.pi / 180.0;
   }
+
+  Future<void> updateUserLocation(String userId, double lat, double lng) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/users/$userId/location'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'latitude': lat,
+          'longitude': lng,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final userIdx = _users.indexWhere((u) => u.id == userId);
+        if (userIdx != -1) {
+          _users[userIdx] = _users[userIdx].copyWith(
+            currentLat: lat,
+            currentLng: lng,
+          );
+          if (_currentUser.id == userId) {
+            _currentUser = _users[userIdx];
+          }
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating user location: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> getParcelTracking(String parcelId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/parcels/$parcelId/tracking'),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data is Map<String, dynamic> ? data : null;
+      }
+    } catch (e) {
+      debugPrint('Error fetching parcel tracking: $e');
+    }
+    return null;
+  }
 }
+

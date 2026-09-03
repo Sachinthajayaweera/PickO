@@ -30,6 +30,7 @@ class User {
   });
 
   String get formattedTrustScore => '${(trustScore * 100).toStringAsFixed(0)}%';
+  String get formattedRating => '${rating.toStringAsFixed(1)} ⭐';
 
   User copyWith({
     String? id,

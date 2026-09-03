@@ -222,12 +222,88 @@ def run_tests():
             assert stars == 3
             assert feedback == "Delivery was okay, but a bit late."
             
-            # Verify traveler rating and trust score were updated in DB
+            # Verify traveler rating and trust score were updated in DB using formula:
+            # Rating = 3 stars / 1 delivery = 3.0
+            # Trust Score = (3 / (1 * 5)) * 100 = 60.0%
             cursor.execute("SELECT rating, trust_score FROM users WHERE id = %s", (traveler_id,))
             new_rating, new_trust = cursor.fetchone()
             assert float(new_rating) == 3.0, f"Expected rating 3.0, got {new_rating}"
-            assert float(new_trust) < float(old_trust), f"Expected trust score to drop, old: {old_trust}, new: {new_trust}"
-            print("SUCCESS: Test 6 Passed: Delivery rated and traveler trust score updated successfully.")
+            assert float(new_trust) == 60.0, f"Expected trust score 60.0, got {new_trust}"
+            print("SUCCESS: Test 6 Passed: Delivery rated and traveler trust score updated via formula (3.0 stars, 60%).")
+
+            # --- TEST 7: MATCHING LIABILITY GATING & REQUEST WORKFLOW ---
+            from main import match_travelers, request_traveler, RequestDeliveryRequest, create_parcel, CreateParcelRequest
+            c1_id = str(uuid.uuid4())
+            c2_id = str(uuid.uuid4())
+            cursor.execute("""
+                INSERT INTO users (id, name, username, email, password_hash, is_commuter, route_city, start_city, current_lat, current_lng, kyc_verified_status, trust_score, rating)
+                VALUES 
+                (%s, 'Commuter Rich', 'c_rich', 'rich@test.com', 'h', TRUE, 'Kandy', 'Colombo', 6.9271, 79.8612, TRUE, 95.0, 5.0),
+                (%s, 'Commuter Poor', 'c_poor', 'poor@test.com', 'h', TRUE, 'Kandy', 'Colombo', 6.9271, 79.8612, TRUE, 95.0, 5.0)
+            """, (c1_id, c2_id))
+            cursor.execute("""
+                INSERT INTO wallets (user_id, available_balance, locked_escrow_balance)
+                VALUES (%s, 5000.0, 0.0), (%s, 200.0, 0.0)
+            """, (c1_id, c2_id))
+            conn.commit()
+
+            # Create parcel with liability = 1,500 Rs
+            p_match_res = create_parcel(CreateParcelRequest(
+                sender_id=sender_id,
+                category_type='B',
+                liability_value=1500.00,
+                receiver_name='Test Receiver',
+                receiver_phone='0771234567',
+                pickup_city='Colombo',
+                dropoff_city='Kandy',
+                pickup_lat=6.9271,
+                pickup_lng=79.8612,
+                dropoff_lat=7.2906,
+                dropoff_lng=80.6337,
+                tip_amount=300.00,
+                description='High-Value Device'
+            ))
+            p_match_id = p_match_res["id"]
+
+            # Match travelers: Rich commuter must appear, poor commuter must NOT appear
+            match_res = match_travelers(p_match_id)
+            matched_uids = [m["traveler"]["id"] for m in match_res]
+            assert c1_id in matched_uids, "Rich commuter should be in match results"
+            assert c2_id not in matched_uids, "Poor commuter should be excluded due to insufficient liability balance"
+            
+            # Sender requests rich commuter
+            req_out = request_traveler(p_match_id, RequestDeliveryRequest(travelerId=c1_id))
+            assert req_out["requestedTravelerId"] == c1_id
+            
+            # Rich commuter accepts the request
+            acc_out = accept_parcel(AcceptParcelRequest(travelerId=c1_id, parcelId=p_match_id))
+            assert acc_out["parcel"]["status"] == "Accepted"
+            
+            # Verify escrow locked
+            cursor.execute("SELECT available_balance, locked_escrow_balance FROM wallets WHERE user_id = %s", (c1_id,))
+            c1_avail, c1_locked = cursor.fetchone()
+            assert float(c1_avail) == 3500.0
+            assert float(c1_locked) == 1500.0
+            print("SUCCESS: Test 7 Passed: Commuter matching gated by liability balance and direct request accepted.")
+
+            # --- TEST 8: LIVE TRACKING & LOCATION BROADCAST ---
+            from main import update_user_location, UpdateLocationRequest, get_parcel_tracking
+            # Commuter broadcasts current GPS coordinates (e.g. moving between Colombo and Kandy, at Warakapola: 7.2236, 80.1983)
+            loc_res = update_user_location(c1_id, UpdateLocationRequest(latitude=7.2236, longitude=80.1983))
+            assert loc_res["current_lat"] == 7.2236
+            assert loc_res["current_lng"] == 80.1983
+            
+            # Fetch enriched parcel tracking
+            tracking_data = get_parcel_tracking(p_match_id)
+            assert tracking_data["parcel"]["id"] == p_match_id
+            assert tracking_data["traveler"] is not None
+            assert tracking_data["traveler"]["id"] == c1_id
+            assert tracking_data["traveler"]["currentLat"] == 7.2236
+            assert tracking_data["traveler"]["currentLng"] == 80.1983
+            assert "navigation" in tracking_data
+            assert tracking_data["navigation"]["remainingDistanceKm"] > 0.0
+            assert tracking_data["navigation"]["etaMinutes"] > 0
+            print("SUCCESS: Test 8 Passed: Location updated and enriched live tracking returned navigation ETA & coordinates.")
 
             # --- AUTH TESTS ---
             print("\nRunning new Authentication and Profile Management tests...")
@@ -249,11 +325,13 @@ def run_tests():
             reg_res = auth_register(reg_req)
             assert reg_res["token"] is not None
             assert reg_res["user"]["username"] == "testuser"
+            assert reg_res["user"]["trust_score"] == 0.0, f"Expected 0.0 trust score, got {reg_res['user']['trust_score']}"
+            assert reg_res["user"]["rating"] == 0.0, f"Expected 0.0 rating, got {reg_res['user']['rating']}"
             u_id = reg_res["user"]["id"]
             
             # Verify wallet created
             assert reg_res["wallet"]["available_balance"] == 5000.00
-            print("SUCCESS: Auth Test 1 Passed: User registered with wallet and token generated.")
+            print("SUCCESS: Auth Test 1 Passed: User registered with 0 starting scores, wallet, and token generated.")
             
             # Auth Test 2: Register duplicate email (should fail)
             try:

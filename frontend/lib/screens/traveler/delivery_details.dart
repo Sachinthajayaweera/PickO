@@ -57,6 +57,31 @@ class DeliveryDetailsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Direct Request Header
+                if (parcel.requestedTravelerId == traveler.id) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF10B981)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.star_rounded, color: Color(0xFF10B981), size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'You were specifically requested by the sender for this run!',
+                            style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 // Category Header
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -274,7 +299,11 @@ class DeliveryDetailsScreen extends StatelessWidget {
                     child: Text(
                       isTrustGated
                           ? 'Trust Score Too Low'
-                          : (!hasFunds ? 'Insufficient Wallet Funds' : 'Lock Escrow & Accept Run'),
+                          : (!hasFunds
+                              ? 'Insufficient Wallet Funds'
+                              : (parcel.requestedTravelerId == traveler.id
+                                  ? 'Accept Request & Lock Escrow'
+                                  : 'Lock Escrow & Accept Run')),
                       style: TextStyle(
                         color: (isTrustGated || !hasFunds) ? Colors.grey[600] : Colors.white,
                         fontSize: 15,

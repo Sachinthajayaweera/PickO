@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/mock_api_service.dart';
 import '../../models/parcel.dart';
 import '../../models/user.dart';
 import 'parcel_handshake.dart';
+import 'live_tracking.dart';
 
 class SenderDashboardScreen extends StatefulWidget {
   final VoidCallback onCreateParcelTab;
@@ -246,7 +249,7 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                 backgroundColor: const Color(0xFF8B5CF6),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
-                              child: const Text('Scaffold New Parcel', style: TextStyle(color: Colors.white)),
+                              child: const Text('New Parcel', style: TextStyle(color: Colors.white)),
                             ),
                           ],
                         ],
@@ -355,28 +358,130 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
               ),
             ],
           ),
-          if (parcel.status == ParcelStatus.delivered && traveler != null) ...[
+          if (parcel.travelerId != null && traveler != null) ...[
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () => _showTravelerDetailsModal(context, traveler, parcel, apiService),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161424),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: parcel.status == ParcelStatus.readyForPickup
+                        ? const Color(0xFFF59E0B).withOpacity(0.35)
+                        : const Color(0xFF8B5CF6).withOpacity(0.35),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: const Color(0xFF232038),
+                      backgroundImage: traveler.avatarUrl != null && traveler.avatarUrl!.isNotEmpty
+                          ? NetworkImage(traveler.avatarUrl!.startsWith('http')
+                              ? traveler.avatarUrl!
+                              : '${apiService.baseUrl}${traveler.avatarUrl}')
+                          : null,
+                      child: traveler.avatarUrl == null || traveler.avatarUrl!.isEmpty
+                          ? const Icon(Icons.person_rounded, size: 20, color: Colors.grey)
+                          : null,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                parcel.status == ParcelStatus.readyForPickup
+                                    ? 'Accepted by: ${traveler.name}'
+                                    : parcel.status == ParcelStatus.inTransit
+                                        ? 'In Transit: ${traveler.name}'
+                                        : 'Delivered by: ${traveler.name}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              if (traveler.isKycVerified) ...[
+                                const SizedBox(width: 4),
+                                const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 14),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 2,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                traveler.formattedRating,
+                                style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '• Trust: ${traveler.formattedTrustScore}',
+                                style: const TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.w600),
+                              ),
+                              if (traveler.routeCity != null)
+                                Text(
+                                  '• ${traveler.routeCity}',
+                                  style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Text(
+                            'Details',
+                            style: TextStyle(color: Color(0xFFA78BFA), fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                          SizedBox(width: 2),
+                          Icon(Icons.chevron_right_rounded, color: Color(0xFFA78BFA), size: 14),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          if (parcel.status == ParcelStatus.matching && parcel.requestedTravelerId != null) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 10,
-                  backgroundColor: const Color(0xFF1E1B2C),
-                  backgroundImage: traveler.avatarUrl != null && traveler.avatarUrl!.isNotEmpty
-                      ? NetworkImage(traveler.avatarUrl!.startsWith('http')
-                          ? traveler.avatarUrl!
-                          : '${apiService.baseUrl}${traveler.avatarUrl}')
-                      : null,
-                  child: traveler.avatarUrl == null || traveler.avatarUrl!.isEmpty
-                      ? const Icon(Icons.person_rounded, size: 10, color: Colors.grey)
-                      : null,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Delivered by: ${traveler.name}',
-                  style: TextStyle(color: Colors.grey[400], fontSize: 11, fontFamily: 'Outfit'),
-                ),
-              ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.hourglass_top_rounded, color: Colors.amber, size: 14),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Requested: ${apiService.getUser(parcel.requestedTravelerId!)?.name ?? 'commuter'}. Awaiting acceptance...',
+                      style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -389,109 +494,183 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Liability Value', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                  const SizedBox(height: 2),
                   Text('Rs. ${parcel.liabilityValue.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                 ],
               ),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text('Estimated Tip', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                  const SizedBox(height: 2),
                   Text('Rs. ${parcel.tipAmount.toStringAsFixed(0)}', style: const TextStyle(color: Color(0xFF10B981), fontSize: 13, fontWeight: FontWeight.bold)),
                 ],
               ),
-              // Action Buttons based on status
-              if (parcel.status == ParcelStatus.matching)
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _selectedMatchingParcel = parcel;
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8B5CF6),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: Row(
-                    children: const [
-                      Icon(Icons.psychology_rounded, size: 14, color: Colors.white),
-                      SizedBox(width: 4),
-                      Text('Matching', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                )
-              else if (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit)
-                OutlinedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ParcelHandshakeScreen(parcel: parcel),
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF8B5CF6),
-                    side: const BorderSide(color: Color(0xFF8B5CF6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: Row(
-                    children: const [
-                      Icon(Icons.qr_code_2_rounded, size: 14),
-                      SizedBox(width: 4),
-                      Text('QR Code', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                )
-              else ...[
-                if (parcel.status == ParcelStatus.delivered) ...[
-                  if (parcel.ratingStars == null)
-                    ElevatedButton(
-                      onPressed: () => _showRatingDialog(context, parcel, apiService),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.star_rounded, size: 14, color: Colors.white),
-                          SizedBox(width: 4),
-                          Text('Rate Delivery', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    )
-                  else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: List.generate(5, (index) {
-                            return Icon(
-                              Icons.star_rounded,
-                              color: index < parcel.ratingStars! ? Colors.amber : Colors.white10,
-                              size: 14,
-                            );
-                          }),
-                        ),
-                        if (parcel.feedbackText != null && parcel.feedbackText!.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            parcel.feedbackText!,
-                            style: TextStyle(color: Colors.grey[400], fontSize: 11, fontStyle: FontStyle.italic),
-                          ),
-                        ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Action Buttons based on status
+          Align(
+            alignment: Alignment.centerRight,
+            child: parcel.status == ParcelStatus.matching
+                ? ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedMatchingParcel = parcel;
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.psychology_rounded, size: 14, color: Colors.white),
+                        SizedBox(width: 4),
+                        Text('Matching', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                       ],
                     ),
-                ] else
-                  Text(
-                    'Refund Issued',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 12, fontStyle: FontStyle.italic),
-                  ),
-              ],
-            ],
+                  )
+                : parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit
+                    ? Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          if (traveler != null)
+                            ElevatedButton(
+                              onPressed: () => _showTravelerDetailsModal(context, traveler, parcel, apiService),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF8B5CF6).withOpacity(0.18),
+                                foregroundColor: const Color(0xFFA78BFA),
+                                side: BorderSide(color: const Color(0xFF8B5CF6).withOpacity(0.4)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.person_pin_rounded, size: 14, color: Color(0xFFA78BFA)),
+                                  SizedBox(width: 4),
+                                  Text('Traveler Details', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          if (parcel.status == ParcelStatus.inTransit)
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LiveTrackingScreen(parcel: parcel),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981).withOpacity(0.18),
+                                foregroundColor: const Color(0xFF10B981),
+                                side: BorderSide(color: const Color(0xFF10B981).withOpacity(0.4)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.navigation_rounded, size: 14, color: Color(0xFF10B981)),
+                                  SizedBox(width: 4),
+                                  Text('Track Live', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          OutlinedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ParcelHandshakeScreen(parcel: parcel),
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF8B5CF6),
+                              side: const BorderSide(color: Color(0xFF8B5CF6)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.qr_code_2_rounded, size: 14),
+                                SizedBox(width: 4),
+                                Text('QR Code', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      )
+                    : parcel.status == ParcelStatus.delivered
+                        ? Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              if (traveler != null)
+                                OutlinedButton(
+                                  onPressed: () => _showTravelerDetailsModal(context, traveler, parcel, apiService),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white70,
+                                    side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.person_rounded, size: 12, color: Colors.grey),
+                                      SizedBox(width: 4),
+                                      Text('Traveler', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                              if (parcel.ratingStars == null)
+                                ElevatedButton(
+                                  onPressed: () => _showRatingDialog(context, parcel, apiService),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.star_rounded, size: 14, color: Colors.white),
+                                      SizedBox(width: 4),
+                                      Text('Rate', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                )
+                              else
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List.generate(5, (index) {
+                                    return Icon(
+                                      Icons.star_rounded,
+                                      color: index < parcel.ratingStars! ? Colors.amber : Colors.white10,
+                                      size: 14,
+                                    );
+                                  }),
+                                ),
+                            ],
+                          )
+                        : Text(
+                            'Refund Issued',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 12, fontStyle: FontStyle.italic),
+                          ),
           ),
         ],
       ),
@@ -674,6 +853,547 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
     );
   }
 
+  void _showTravelerDetailsModal(BuildContext context, User initialTraveler, Parcel parcel, MockApiService apiService) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return FutureBuilder<User?>(
+          future: apiService.fetchUser(initialTraveler.id),
+          initialData: initialTraveler,
+          builder: (context, snapshot) {
+            final traveler = snapshot.data ?? initialTraveler;
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF161424),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black54, blurRadius: 20, spreadRadius: 5),
+                ],
+              ),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 12,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Title Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Delivery Person Details',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Accepted Commuter • Live Partner',
+                              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(parcel.status).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _getStatusColor(parcel.status).withOpacity(0.4)),
+                          ),
+                          child: Text(
+                            parcel.status.displayName,
+                            style: TextStyle(
+                              color: _getStatusColor(parcel.status),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Profile Header Card
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1B2C),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 30,
+                            backgroundColor: const Color(0xFF2B2740),
+                            backgroundImage: traveler.avatarUrl != null && traveler.avatarUrl!.isNotEmpty
+                                ? NetworkImage(traveler.avatarUrl!.startsWith('http')
+                                    ? traveler.avatarUrl!
+                                    : '${apiService.baseUrl}${traveler.avatarUrl}')
+                                : null,
+                            child: traveler.avatarUrl == null || traveler.avatarUrl!.isEmpty
+                                ? const Icon(Icons.person_rounded, size: 34, color: Colors.grey)
+                                : null,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        traveler.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ),
+                                    if (traveler.isKycVerified)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981).withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 12),
+                                            SizedBox(width: 3),
+                                            Text(
+                                              'KYC Verified',
+                                              style: TextStyle(
+                                                color: Color(0xFF10B981),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                if (traveler.username != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '@${traveler.username}',
+                                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                                  ),
+                                ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Route: ${traveler.routeCity ?? parcel.dropoffCity}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF8B5CF6),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Metrics Grid: Rating, Trust Score, Escrow
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1B2C),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  traveler.formattedRating,
+                                  style: const TextStyle(
+                                    color: Colors.amber,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Star Rating',
+                                  style: TextStyle(color: Colors.grey, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1B2C),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  traveler.formattedTrustScore,
+                                  style: const TextStyle(
+                                    color: Color(0xFF10B981),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Trust Score',
+                                  style: TextStyle(color: Colors.grey, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1B2C),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withOpacity(0.05)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Rs. ${parcel.liabilityValue.toStringAsFixed(0)}',
+                                  style: const TextStyle(
+                                    color: Color(0xFFF59E0B),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Escrow Locked',
+                                  style: TextStyle(color: Colors.grey, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Contact & Communication Card
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1B2C),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'COMMUNICATION & CONTACT',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // Phone Row
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.phone_rounded, color: Color(0xFF10B981), size: 18),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Phone Number', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                    Text(
+                                      traveler.phoneNumber ?? '+94 77 123 4567',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.copy_rounded, color: Colors.grey, size: 18),
+                                tooltip: 'Copy Phone Number',
+                                onPressed: () {
+                                  final phone = traveler.phoneNumber ?? '+94 77 123 4567';
+                                  Clipboard.setData(ClipboardData(text: phone));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Phone number copied to clipboard!'),
+                                      backgroundColor: Color(0xFF10B981),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                },
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final phone = traveler.phoneNumber ?? '+94 77 123 4567';
+                                  final uri = Uri(scheme: 'tel', path: phone);
+                                  if (await canLaunchUrl(uri)) {
+                                    await launchUrl(uri);
+                                  } else {
+                                    Clipboard.setData(ClipboardData(text: phone));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Could not open phone app. Copied to clipboard!'),
+                                        backgroundColor: Color(0xFF8B5CF6),
+                                      ),
+                                    );
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                child: const Text('Call', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                          if (traveler.email != null && traveler.email!.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.white10),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF3B82F6).withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.email_rounded, color: Color(0xFF60A5FA), size: 18),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Email Address', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                      Text(
+                                        traveler.email!,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy_rounded, color: Colors.grey, size: 18),
+                                  tooltip: 'Copy Email',
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: traveler.email!));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Email copied to clipboard!'),
+                                        backgroundColor: Color(0xFF10B981),
+                                        duration: Duration(seconds: 2),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Handshake Phase Info Banner
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8B5CF6).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.25)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shield_rounded, color: Color(0xFFA78BFA), size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Protected by PickO Collateral Escrow',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  parcel.status == ParcelStatus.readyForPickup
+                                      ? 'Traveler has locked Rs. ${parcel.liabilityValue.toStringAsFixed(0)} deposit. Show your QR Code to confirm pickup.'
+                                      : parcel.status == ParcelStatus.inTransit
+                                          ? 'Package in transit with ${traveler.name}. Collateral will only be released after recipient confirms delivery.'
+                                          : 'Delivery successfully verified and closed.',
+                                  style: TextStyle(color: Colors.grey[300], fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Actions
+                    Row(
+                      children: [
+                        if (parcel.status == ParcelStatus.inTransit) ...[
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LiveTrackingScreen(parcel: parcel),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.navigation_rounded, size: 18, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Track Live',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        if (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit) ...[
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ParcelHandshakeScreen(parcel: parcel),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF8B5CF6),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.qr_code_2_rounded, size: 18, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'QR Code',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Draw bottom sheet matching details
   Widget _buildMatchingDrawer(BuildContext context, Parcel parcel, MockApiService apiService) {
     final matches = apiService.simulateMatchingAlgorithm(parcel);
@@ -775,24 +1495,38 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          traveler.name,
-                                          style: TextStyle(
-                                            color: isEligible ? Colors.white : Colors.grey,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                            fontFamily: 'Outfit',
-                                          ),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              traveler.name,
+                                              style: TextStyle(
+                                                color: isEligible ? Colors.white : Colors.grey,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              traveler.formattedRating,
+                                              style: const TextStyle(
+                                                color: Colors.amber,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                         const SizedBox(height: 4),
                                         // Steps verification flags
-                                        Row(
+                                        Wrap(
+                                          spacing: 5,
+                                          runSpacing: 4,
                                           children: [
                                             _buildAlgorithmChip('Spatial (5km)', match['passesSpatial'], '${distance.toStringAsFixed(1)}km'),
-                                            const SizedBox(width: 6),
                                             _buildAlgorithmChip('Route', match['passesRoute'], traveler.routeCity ?? '-'),
-                                            const SizedBox(width: 6),
                                             _buildAlgorithmChip('Trust Gate', match['passesTrustGate'], traveler.formattedTrustScore),
+                                            _buildAlgorithmChip('Collateral', true, 'Rs. ${apiService.getWallet(traveler.id).availableBalance.toStringAsFixed(0)}'),
                                           ],
                                         ),
                                       ],
@@ -815,18 +1549,43 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      if (isEligible)
-                                        ElevatedButton(
-                                          onPressed: () {
-                                            // Assign parcel
-                                            // Simulate traveler accepting it
+                                      if (parcel.requestedTravelerId == traveler.id)
+                                        OutlinedButton(
+                                          onPressed: () async {
                                             try {
-                                              apiService.selectTraveler(traveler.id);
-                                              apiService.acceptParcel(parcel.id);
+                                              await apiService.cancelDeliveryRequest(parcel.id);
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 SnackBar(
-                                                  content: Text('Commuter ${traveler.name} assigned! Escrow locked.'),
-                                                  backgroundColor: Colors.green,
+                                                  content: Text('Delivery request to ${traveler.name} cancelled.'),
+                                                  backgroundColor: Colors.grey[800],
+                                                ),
+                                              );
+                                              setState(() {});
+                                            } catch (e) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                                              );
+                                            }
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: Colors.amber,
+                                            side: const BorderSide(color: Colors.amber),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                          ),
+                                          child: const Text('Requested ⏳', style: TextStyle(fontSize: 10, color: Colors.amber, fontWeight: FontWeight.bold)),
+                                        )
+                                      else if (isEligible)
+                                        ElevatedButton(
+                                          onPressed: () async {
+                                            try {
+                                              await apiService.requestDelivery(parcel.id, traveler.id);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Delivery request sent to ${traveler.name}! Waiting for acceptance.'),
+                                                  backgroundColor: const Color(0xFF8B5CF6),
                                                 ),
                                               );
                                               setState(() {
@@ -848,7 +1607,7 @@ class _SenderDashboardScreenState extends State<SenderDashboardScreen> {
                                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                           ),
-                                          child: const Text('Assign', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                                          child: const Text('Request', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
                                         )
                                       else
                                         const Text('Ineligible', style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),

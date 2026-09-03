@@ -93,6 +93,7 @@ class Parcel {
   final String? feedbackText;
   final String? receiverName;
   final String? receiverPhone;
+  final String? requestedTravelerId;
 
   Parcel({
     required this.id,
@@ -116,7 +117,10 @@ class Parcel {
     this.feedbackText,
     this.receiverName,
     this.receiverPhone,
+    this.requestedTravelerId,
   });
+
+  bool get isDirectlyRequested => requestedTravelerId != null && status == ParcelStatus.matching;
 
   Parcel copyWith({
     String? id,
@@ -140,6 +144,7 @@ class Parcel {
     String? feedbackText,
     String? receiverName,
     String? receiverPhone,
+    String? requestedTravelerId,
   }) {
     return Parcel(
       id: id ?? this.id,
@@ -163,6 +168,7 @@ class Parcel {
       feedbackText: feedbackText ?? this.feedbackText,
       receiverName: receiverName ?? this.receiverName,
       receiverPhone: receiverPhone ?? this.receiverPhone,
+      requestedTravelerId: requestedTravelerId ?? this.requestedTravelerId,
     );
   }
 }

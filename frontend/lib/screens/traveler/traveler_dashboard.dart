@@ -21,8 +21,13 @@ class TravelerDashboardScreen extends StatelessWidget {
     final traveler = apiService.currentUser;
     final wallet = apiService.getWallet(traveler.id);
 
-    // Filter parcels
+    // Filter parcels (sort directly requested parcels to the top)
     final availableParcels = apiService.parcels.where((p) => p.status == ParcelStatus.matching).toList();
+    availableParcels.sort((a, b) {
+      final aReq = a.requestedTravelerId == traveler.id ? 1 : 0;
+      final bReq = b.requestedTravelerId == traveler.id ? 1 : 0;
+      return bReq.compareTo(aReq);
+    });
     final myRuns = apiService.parcels.where((p) => p.travelerId == traveler.id).toList();
 
     return Scaffold(
@@ -208,7 +213,7 @@ class TravelerDashboardScreen extends StatelessWidget {
                                         const Icon(Icons.security_rounded, color: Color(0xFF10B981), size: 12),
                                         const SizedBox(width: 4),
                                         Text(
-                                          'Trust Score: ${traveler.formattedTrustScore}',
+                                          'Trust Score: ${traveler.formattedTrustScore} (${traveler.formattedRating})',
                                           style: const TextStyle(color: Color(0xFF10B981), fontSize: 9, fontWeight: FontWeight.bold),
                                         ),
                                       ],
@@ -343,7 +348,11 @@ class TravelerDashboardScreen extends StatelessWidget {
   }
 
   Widget _buildExploreCard(BuildContext context, Parcel parcel, bool isGated, MockApiService apiService) {
-    final themeColor = isGated ? Colors.grey : const Color(0xFF10B981);
+    final traveler = apiService.currentUser;
+    final isRequestedForMe = parcel.requestedTravelerId == traveler.id;
+    final themeColor = isRequestedForMe
+        ? const Color(0xFF10B981)
+        : (isGated ? Colors.grey : const Color(0xFF10B981));
     final categoryColor = _getCategoryColor(parcel.category);
 
     return Container(
@@ -353,12 +362,38 @@ class TravelerDashboardScreen extends StatelessWidget {
         color: const Color(0xFF1E1B2C),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isGated ? Colors.transparent : themeColor.withOpacity(0.1),
+          color: isRequestedForMe
+              ? const Color(0xFF10B981)
+              : (isGated ? Colors.transparent : themeColor.withOpacity(0.1)),
+          width: isRequestedForMe ? 1.5 : 1.0,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isRequestedForMe) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+              ),
+              child: Row(
+                children: const [
+                  Icon(Icons.star_rounded, color: Color(0xFF10B981), size: 16),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'DIRECT DELIVERY REQUEST: Sender selected you!',
+                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -393,8 +428,12 @@ class TravelerDashboardScreen extends StatelessWidget {
                 )
               else
                 Text(
-                  'Route Match ✓',
-                  style: TextStyle(color: Colors.greenAccent[400], fontSize: 10, fontWeight: FontWeight.bold),
+                  isRequestedForMe ? 'Direct Match ★' : 'Route Match ✓',
+                  style: TextStyle(
+                    color: isRequestedForMe ? const Color(0xFF10B981) : Colors.greenAccent[400],
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
             ],
           ),
@@ -453,32 +492,89 @@ class TravelerDashboardScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              ElevatedButton(
-                onPressed: isGated
-                    ? null
-                    : () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => DeliveryDetailsScreen(parcel: parcel),
-                          ),
-                        );
+              if (isRequestedForMe)
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: () async {
+                        try {
+                          await apiService.cancelDeliveryRequest(parcel.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Delivery request declined.')),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                          );
+                        }
                       },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  disabledBackgroundColor: Colors.white.withOpacity(0.05),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: Text(
-                  isGated ? 'Gated' : 'View Run',
-                  style: TextStyle(
-                    color: isGated ? Colors.grey[600] : Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey,
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Decline', style: TextStyle(fontSize: 11)),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: isGated
+                          ? null
+                          : () async {
+                              try {
+                                await apiService.acceptParcel(parcel.id);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Delivery request accepted! Escrow locked.'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Accept', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                )
+              else
+                ElevatedButton(
+                  onPressed: isGated
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DeliveryDetailsScreen(parcel: parcel),
+                            ),
+                          );
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    disabledBackgroundColor: Colors.white.withOpacity(0.05),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text(
+                    isGated ? 'Gated' : 'View Run',
+                    style: TextStyle(
+                      color: isGated ? Colors.grey[600] : Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ],
@@ -553,7 +649,7 @@ class TravelerDashboardScreen extends StatelessWidget {
                 ],
               ),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text('Your Tip', style: TextStyle(color: Colors.grey, fontSize: 10)),
                   Text(
@@ -562,42 +658,48 @@ class TravelerDashboardScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              if (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ScanQrScreen(parcel: parcel),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        parcel.status == ParcelStatus.readyForPickup ? Icons.camera_alt_rounded : Icons.qr_code_scanner_rounded,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        parcel.status == ParcelStatus.readyForPickup ? 'Pickup' : 'Deliver',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Text(
-                  parcel.status == ParcelStatus.delivered ? 'Completed' : 'Stolen / Penalized',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 11, fontStyle: FontStyle.italic),
-                ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: (parcel.status == ParcelStatus.readyForPickup || parcel.status == ParcelStatus.inTransit)
+                ? ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ScanQrScreen(parcel: parcel),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          parcel.status == ParcelStatus.readyForPickup
+                              ? Icons.camera_alt_rounded
+                              : Icons.qr_code_scanner_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          parcel.status == ParcelStatus.readyForPickup ? 'Pickup' : 'Deliver',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  )
+                : Text(
+                    parcel.status == ParcelStatus.delivered ? 'Completed' : 'Stolen / Penalized',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 11, fontStyle: FontStyle.italic),
+                  ),
           ),
         ],
       ),

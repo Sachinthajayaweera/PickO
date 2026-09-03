@@ -477,7 +477,7 @@ class WalletProfileTab extends StatelessWidget {
                       const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
                       const SizedBox(width: 4),
                       Text(
-                        '${user.rating} Rating  •  ${(user.trustScore * 100).toStringAsFixed(0)}% Trust Score',
+                        '${user.formattedRating}  •  Trust Score: ${user.formattedTrustScore}',
                         style: TextStyle(color: Colors.grey[400], fontSize: 13),
                       ),
                     ],
